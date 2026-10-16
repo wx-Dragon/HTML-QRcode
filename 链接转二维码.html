@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链接转二维码</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body {
+    background: linear-gradient(145deg, #f6f9fc 0%, #e9f1f8 100%);
+    min-height: 100vh;
+    display: flex; justify-content: center; align-items: center;
+    padding: 1.5rem;
+  }
+  .card {
+    background: #fff;
+    border-radius: 2rem;
+    padding: 2.5rem 2rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 20, 40, 0.25);
+    max-width: 640px; width: 100%;
+  }
+  h1 { font-size: 1.6rem; color: #0b2b4a; margin-bottom: 0.4rem; }
+  .sub { color: #5a7d99; margin-bottom: 1.8rem; font-size: 0.95rem; }
+  .input-group { display: flex; gap: 0.7rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  input {
+    flex: 1 1 240px; padding: 0.9rem 1.3rem;
+    border: 2px solid #cbdde9; border-radius: 60px;
+    font-size: 1rem; outline: none; color: #0a2a40;
+    transition: border-color .2s;
+  }
+  input:focus { border-color: #1d6ea0; }
+  button {
+    padding: 0.9rem 2rem; border: none;
+    background: #1d4e7a; color: #fff;
+    font-weight: 600; font-size: 1rem;
+    border-radius: 60px; cursor: pointer;
+    transition: background .2s, transform .1s;
+    white-space: nowrap;
+  }
+  button:hover { background: #0f3b5c; }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .qr-box {
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 300px; justify-content: center;
+    padding: 1rem; margin-bottom: 1rem;
+  }
+  #qrcode { border-radius: 12px; }
+  #qrcode img, #qrcode canvas { display: block; border-radius: 12px; }
+  .placeholder {
+    color: #8aa8bf; text-align: center; padding: 3rem 1rem;
+    border: 2px dashed #c5d9e8; border-radius: 1.5rem;
+    width: 100%; max-width: 320px;
+  }
+  .placeholder svg { margin-bottom: 0.6rem; opacity: 0.6; }
+  .download-row { display: flex; justify-content: center; }
+  .btn-dl {
+    background: #fff; color: #1d4e7a;
+    border: 2px solid #cbdde9;
+    padding: 0.7rem 1.8rem; font-weight: 600;
+  }
+  .btn-dl:hover:not(:disabled) { background: #ecf5fc; border-color: #8bb3cf; }
+  .status { text-align: center; margin-top: 1rem; font-size: 0.85rem; color: #577e9a; min-height: 1.2rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔗 链接转二维码</h1>
+  <div class="sub">输入链接，点击生成，即可获得二维码</div>
+
+  <div class="input-group">
+    <input type="url" id="urlInput" value="https://www.example.com" placeholder="https://example.com">
+    <button id="genBtn">⚡ 生成</button>
+  </div>
+
+  <div class="qr-box">
+    <div id="placeholder" class="placeholder">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8aa8bf" stroke-width="1.2">
+        <rect x="3" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+        <rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      <div>二维码将显示在这里</div>
+    </div>
+    <div id="qrcode" style="display:none;"></div>
+  </div>
+
+  <div class="download-row">
+    <button id="dlBtn" class="btn-dl" disabled>⬇️ 下载二维码</button>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<!-- 加载二维码库（多CDN + 本地兜底） -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+  // 兜底：如果 CDN 没加载成功，从第二个源加载
+  if (typeof QRCode === 'undefined') {
+    document.write('<script src="https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"><\/script>');
+  }
+</script>
+
+<script>
+  window.onload = function () {
+    var urlInput  = document.getElementById('urlInput');
+    var genBtn    = document.getElementById('genBtn');
+    var qrDiv     = document.getElementById('qrcode');
+    var placeholder = document.getElementById('placeholder');
+    var dlBtn     = document.getElementById('dlBtn');
+    var statusEl  = document.getElementById('status');
+
+    // 检查库是否加载成功
+    if (typeof QRCode === 'undefined') {
+      statusEl.textContent = '❌ 二维码库加载失败，请检查网络后刷新';
+      statusEl.style.color = '#c0392b';
+      genBtn.disabled = true;
+      return;
+    }
+
+    var currentUrl = '';
+
+    function setStatus(msg, isErr) {
+      statusEl.textContent = msg || '';
+      statusEl.style.color = isErr ? '#c0392b' : '#577e9a';
+    }
+
+    function generate() {
+      var url = urlInput.value.trim();
+      if (!url) {
+        setStatus('请输入链接', true);
+        return;
+      }
+
+      genBtn.disabled = true;
+      setStatus('生成中...');
+
+      // 清空旧二维码
+      qrDiv.innerHTML = '';
+      qrDiv.style.display = 'none';
+      placeholder.style.display = 'block';
+
+      // 用 setTimeout 让界面先刷新，再生成
+      setTimeout(function () {
+        try {
+          // QRCode 是 qrcodejs 库的全局构造函数
+          var qrcode = new QRCode(qrDiv, {
+            text: url,
+            width: 260,
+            height: 260,
+            colorDark: '#0b2b4a',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+          });
+
+          // 显示二维码
+          qrDiv.style.display = 'block';
+          placeholder.style.display = 'none';
+          dlBtn.disabled = false;
+          currentUrl = url;
+          setStatus('✅ 生成成功');
+        } catch (e) {
+          console.error(e);
+          setStatus('❌ 生成失败: ' + e.message, true);
+          placeholder.style.display = 'block';
+          qrDiv.style.display = 'none';
+          dlBtn.disabled = true;
+        } finally {
+          genBtn.disabled = false;
+        }
+      }, 50);
+    }
+
+    genBtn.addEventListener('click', generate);
+    urlInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); generate(); }
+    });
+
+    dlBtn.addEventListener('click', function () {
+      if (!currentUrl) return;
+      // qrcodejs 生成的是 canvas，也可能是 img（取决于浏览器）
+      var canvas = qrDiv.querySelector('canvas');
+      var img = qrDiv.querySelector('img');
+
+      var dataURL = null;
+      if (canvas) {
+        dataURL = canvas.toDataURL('image/png');
+      } else if (img && img.src) {
+        dataURL = img.src;
+      }
+
+      if (!dataURL) {
+        setStatus('无法获取二维码图片', true);
+        return;
+      }
+
+      var a = document.createElement('a');
+      a.href = dataURL;
+      a.download = 'qrcode.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setStatus('⬇️ 已下载');
+    });
+
+    // 页面加载后自动生成一次
+    generate();
+  };
+</script>
+</body>
+</html>
